@@ -11,24 +11,26 @@ use App\Http\Controllers\AdminAuthController;
 |--------------------------------------------------------------------------
 */
 
-// 1. Redirect root to the public kiosk
+// Redirect the root URL directly to the kiosk page
 Route::redirect('/', '/kiosk');
 
-// 2. Public Kiosk Routes & Booking Submission
+// Public Kiosk Routes
 Route::controller(BookingController::class)->group(function () {
+    // This loads the 'kiosk' view via the kioskReserve method in your controller
     Route::get('/kiosk', 'kioskReserve')->name('kiosk.reserve');
     Route::post('/reserve', 'store')->name('reserve.store');
+    
+    // Email Verification (OTP) for public bookings
+    Route::post('/send-otp', 'sendOtp')->name('otp.send');
+    Route::post('/verify-otp', 'verifyOtp')->name('otp.verify');
 });
 
-// --- ADDED THIS FIX ---
-// Laravel's security automatically looks for a route named exactly 'login'
-// This safely catches it and points it to your custom admin login page!
+// Basic Login Redirect
 Route::get('/login', function () {
     return redirect()->route('admin.login');
 })->name('login');
-// ----------------------
 
-// 3. Admin Authentication Routes (Only for users who are NOT logged in)
+// Admin Authentication Routes (Guest only)
 Route::prefix('admin-panel')->name('admin.')->middleware('guest')->group(function () {
     Route::get('/login', [AdminAuthController::class, 'showEmailForm'])->name('login');
     Route::post('/login', [AdminAuthController::class, 'sendOtp'])->name('login.send');
@@ -36,11 +38,18 @@ Route::prefix('admin-panel')->name('admin.')->middleware('guest')->group(functio
     Route::post('/verify', [AdminAuthController::class, 'verifyOtp'])->name('otp.verify');
 });
 
-// 4. Admin Panel Routes (Protected! Requires login)
+// Admin Dashboard Routes (Authenticated only)
 Route::prefix('admin-panel')->name('admin.')->middleware('auth')->group(function () {
+    // Main Dashboard with filters
     Route::get('/', [AdminDashboardController::class, 'index'])->name('dashboard');
+    
+    // Booking Management
     Route::get('/reserve', [BookingController::class, 'adminReserve'])->name('reserve');
     Route::get('/walk-in', [AdminDashboardController::class, 'walkin'])->name('walkin');
     Route::post('/approve/{id}', [AdminDashboardController::class, 'approve'])->name('reservations.approve');
+    
+    // Utilities
+    Route::get('/print-summary', [BookingController::class, 'printSummary'])->name('bookings.print');
+    Route::post('/update-promo', [AdminDashboardController::class, 'updatePromo'])->name('updatePromo');
     Route::post('/logout', [AdminAuthController::class, 'logout'])->name('logout');
 });

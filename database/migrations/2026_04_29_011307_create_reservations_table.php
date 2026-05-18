@@ -12,6 +12,10 @@ return new class extends Migration
             $table->id();
             $table->date('reservation_date'); 
             $table->string('player_name');
+            
+            // --- ADDED THE EMAIL COLUMN HERE ---
+            $table->string('email')->nullable();
+            
             $table->string('start_time');
             
             // --- ADDED THESE NEW COLUMNS ---
@@ -20,6 +24,9 @@ return new class extends Migration
             $table->integer('price')->default(0); 
             $table->string('payment_method')->nullable(); 
             $table->string('status')->default('pending'); 
+            
+            // *** HERE IS THE MISSING COLUMN ***
+            $table->boolean('rent_equipment')->default(0); 
             // -------------------------------
             
             $table->boolean('is_confirmed')->default(false); 

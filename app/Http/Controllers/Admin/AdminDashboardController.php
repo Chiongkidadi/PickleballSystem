@@ -3,64 +3,107 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Models\Reservation;
 use Illuminate\Http\Request;
-use Carbon\Carbon; 
+use App\Models\Reservation;
+use Carbon\Carbon;
+use Illuminate\Support\Facades\Cache;
 
 class AdminDashboardController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        // 1. Generate Chart Data (Last 7 Days)
-        $days = [];
-        $counts = [];
+        $promo_mode = Cache::get('promo_mode', 'full');
+        $global_discount = Cache::get('global_discount', 0);
         
-        for ($i = 6; $i >= 0; $i--) {
-            $date = Carbon::now()->subDays($i);
-            $days[] = $date->format('D'); // Gets 'Mon', 'Tue', etc.
-            
-            // Count how many reservations happened on this specific day
-            $counts[] = Reservation::whereDate('reservation_date', $date->format('Y-m-d'))->count();
+        // Added: Grab the active tab from the URL so the page stays on "Booked Slots" after filtering
+        $active_tab = $request->get('active_tab', 'dashboard');
+
+        // 1. Start with a Base Query for filtering
+        $baseQuery = Reservation::query();
+
+        // Apply Date Range (Global for both stats and table)
+        if ($request->filled('start_date')) {
+            $baseQuery->whereDate('reservation_date', '>=', $request->start_date);
+        }
+        if ($request->filled('end_date')) {
+            $baseQuery->whereDate('reservation_date', '<=', $request->end_date);
         }
 
-        // 2. Fetch Dashboard Metrics
-        $data = [
-            'total' => Reservation::count(),
-            'paid' => Reservation::where('status', 'paid')->count(),
-            'pending' => Reservation::where('status', 'pending')->count(),
-            
-            // FIXED: Sums up ALL reservations for projected revenue
-            'revenue' => Reservation::sum('price'), 
-            
-            'reservations' => Reservation::orderBy('reservation_date', 'desc')->get(),
-            
-            // 3. Pass chart data to the dashboard.blade.php
-            'days' => $days,
-            'counts' => $counts,
-        ];
+        // Fallback to today/month/year if no specific dates are picked
+        if (!$request->filled('start_date') && !$request->filled('end_date')) {
+            $reportType = $request->get('report', 'all');
+            if ($reportType == 'day') {
+                $baseQuery->whereDate('reservation_date', Carbon::today());
+            } elseif ($reportType == 'month') {
+                $baseQuery->whereMonth('reservation_date', Carbon::now()->month)
+                          ->whereYear('reservation_date', Carbon::now()->year);
+            } elseif ($reportType == 'year') {
+                $baseQuery->whereYear('reservation_date', Carbon::now()->year);
+            }
+        }
 
-        return view('admin.dashboard', $data);
+        // 2. ANALYTICS (Calculated based on dates, but BEFORE player search)
+        $total = (clone $baseQuery)->count();
+        $paid = (clone $baseQuery)->whereIn('status', ['paid', 'approved'])->count();
+        $pending = (clone $baseQuery)->where('status', 'pending')->count();
+        $revenue = (clone $baseQuery)->whereIn('status', ['paid', 'approved'])->sum('price');
+
+        // 3. TABLE FILTERS (Search, Status, MOP)
+        $tableQuery = clone $baseQuery;
+
+        if ($request->filled('search_name')) {
+            // Added trim() to prevent accidental spaces from breaking the search
+            $tableQuery->where('player_name', 'like', '%' . trim($request->search_name) . '%');
+        }
+
+        if ($request->filled('filter_status')) {
+            // Upgraded: whereRaw with LOWER() makes this 100% case-insensitive (Matches Paid, PAID, paid)
+            $tableQuery->whereRaw('LOWER(status) = ?', [strtolower(trim($request->filter_status))]);
+        }
+
+        if ($request->filled('filter_mop')) {
+            // Upgraded: Same exact-match case-insensitive logic for payment method
+            $tableQuery->whereRaw('LOWER(payment_method) = ?', [strtolower(trim($request->filter_mop))]);
+        }
+
+        // 4. FINAL DATA & PAGINATION
+        $reservations = $tableQuery->orderBy('reservation_date', 'desc')
+                                   ->orderBy('start_time', 'desc')
+                                   ->paginate(10)
+                                   ->withQueryString(); // CRITICAL: Keeps filters active when clicking Page 2
+
+        // 5. DYNAMIC CHART DATA (Last 7 Days)
+        $days = [];
+        $counts = [];
+        for ($i = 6; $i >= 0; $i--) {
+            $date = Carbon::today()->subDays($i);
+            $days[] = $date->format('D'); // Generates 'Mon', 'Tue', etc. dynamically
+            $counts[] = Reservation::whereDate('reservation_date', $date)->count(); // Counts real DB records
+        }
+
+        return view('admin.dashboard', compact(
+            'reservations', 'total', 'paid', 'pending', 'revenue', 
+            'days', 'counts', 'promo_mode', 'global_discount', 'active_tab'
+        ));
     }
 
-    /**
-     * Handle the Approve Button on the Dashboard
-     */
     public function approve($id)
     {
         $reservation = Reservation::findOrFail($id);
-        
-        // Changes the status from 'pending' to 'paid' when you click the green button
-        $reservation->update(['status' => 'paid']);
-        
-        return back()->with('success', 'Payment confirmed.');
+        $reservation->update(['status' => 'approved']);
+        return back()->with('success', 'Booking approved!');
     }
 
-    /**
-     * Handle the Walk-in Booking Button
-     */
+    public function updatePromo(Request $request)
+    {
+        $request->validate(['global_discount' => 'required|numeric|min:0|max:100']);
+        Cache::forever('global_discount', $request->global_discount);
+        return back()->with('success', 'Discount updated successfully!');
+    }
+
     public function walkin()
     {
-        // FIXED: Added 'admin.' prefix so it finds the correct route
-        return redirect()->route('admin.reserve');
+        // Adjust this to your actual walk-in view name
+        return view('admin.walkin'); 
     }
 }
