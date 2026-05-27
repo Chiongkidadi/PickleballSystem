@@ -10,25 +10,19 @@ return new class extends Migration
     {
         Schema::create('reservations', function (Blueprint $table) {
             $table->id();
-            $table->date('reservation_date'); 
             $table->string('player_name');
-            
-            // --- ADDED THE EMAIL COLUMN HERE ---
-            $table->string('email')->nullable();
-            
+            $table->string('email')->nullable(); // Missing: Added for notifications
+            $table->date('reservation_date'); 
             $table->string('start_time');
-            
-            // --- ADDED THESE NEW COLUMNS ---
-            $table->string('end_time'); 
-            $table->string('duration');
+            $table->string('end_time'); // Missing: Controller calculates this
+            $table->integer('duration');
             $table->integer('price')->default(0); 
             $table->string('payment_method')->nullable(); 
+            $table->string('reference_number')->nullable(); // Missing: Added for GCash/Bank
+            $table->string('proof_of_payment')->nullable(); // Missing: Added for receipt path
+            $table->string('paddle_rental')->nullable(); // Missing: Added for the text description
+            $table->integer('rent_equipment')->default(0);
             $table->string('status')->default('pending'); 
-            
-            // *** HERE IS THE MISSING COLUMN ***
-            $table->boolean('rent_equipment')->default(0); 
-            // -------------------------------
-            
             $table->boolean('is_confirmed')->default(false); 
             $table->timestamps();
         });

@@ -110,6 +110,14 @@
         .status-paid { color: #2a8b9d; font-weight: bold; }
         .status-pending { color: #d97706; font-weight: bold; }
 
+        .proof-img {
+            width: 50px;
+            height: 50px;
+            object-fit: cover;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+
         @media print {
             .no-print { display: none; }
             body { padding: 0; }
@@ -119,6 +127,14 @@
 </head>
 <body>
 
+    @php
+        $calculatedTotalVolume = count($bookings ?? []);
+        $calculatedGrandTotal = collect($bookings ?? [])->sum('price');
+        $calculatedCollectedRevenue = collect($bookings ?? [])
+            ->whereIn('status', ['paid', 'PAID', 'approved', 'APPROVED'])
+            ->sum('price');
+    @endphp
+
     <button onclick="window.print()" class="print-btn no-print">
         🖨️ Print Output
     </button>
@@ -126,25 +142,22 @@
     <div class="header">
         <h1>Island Central Mactan Pickleball</h1>
         <p>Official Booking Summary Report</p>
+        
         <p style="font-weight: bold; color: #1c4e63; margin-top: 10px;">
-            Period: 
-            @if(!empty($startDate) && !empty($endDate))
-                {{ \Carbon\Carbon::parse($startDate)->format('M d, Y') }} - {{ \Carbon\Carbon::parse($endDate)->format('M d, Y') }}
-            @else
-                All Time
-            @endif
+            Period: {{ $period ?? 'All Time' }}
         </p>
+        
         <p style="font-size: 11px;">Report Generated: {{ \Carbon\Carbon::now()->format('F d, Y h:i A') }}</p>
     </div>
 
     <div class="summary-cards">
         <div class="card">
             <h3>Total Volume</h3>
-            <p>{{ $totalBookings }} Bookings</p>
+            <p>{{ $calculatedTotalVolume }} Bookings</p>
         </div>
         <div class="card">
             <h3>Collected Revenue</h3>
-            <p>₱{{ number_format($totalRevenue, 2) }}</p>
+            <p>₱{{ number_format($calculatedCollectedRevenue, 2) }}</p>
         </div>
     </div>
 
@@ -152,15 +165,18 @@
         <thead>
             <tr>
                 <th>Date</th>
-                <th>Time Slot</th>
+                <th>Time</th>
                 <th>Player Name</th>
                 <th>Method</th>
-                <th>Status</th> <th class="text-right">Equipment</th>
+                <th>Status</th> 
+                <th>Ref #</th> 
+                <th>Receipt</th> 
+                <th class="text-right">Equip.</th>
                 <th class="text-right">Amount</th>
             </tr>
         </thead>
         <tbody>
-            @forelse($bookings as $booking)
+            @forelse($bookings ?? [] as $booking)
             <tr>
                 <td>{{ \Carbon\Carbon::parse($booking->reservation_date)->format('M d, Y') }}</td>
                 <td style="color: #666;">
@@ -177,25 +193,36 @@
                     @endif
                 </td>
 
+                <td style="font-family: monospace;">{{ $booking->reference_number ?? 'N/A' }}</td>
+
+                <td>
+                    @if($booking->proof_of_payment)
+                        <img src="{{ asset('storage/' . $booking->proof_of_payment) }}" class="proof-img">
+                    @else
+                        <span style="color: #ccc; font-size: 10px;">No Image</span>
+                    @endif
+                </td>
+
                 <td class="text-right">₱{{ number_format($booking->rent_equipment ?? 0, 2) }}</td>
                 <td class="text-right font-bold">₱{{ number_format($booking->price, 2) }}</td>
             </tr>
             @empty
             <tr>
-                <td colspan="7" style="text-align: center; padding: 40px; color: #888;">
-                    No booking records found for the selected dates.
+                <td colspan="9" style="text-align: center; padding: 40px; color: #888;">
+                    No booking records found for the selected period.
                 </td>
             </tr>
             @endforelse
         </tbody>
-        @if($bookings->count() > 0)
+        
+        @if(count($bookings ?? []) > 0)
         <tfoot>
             <tr class="total-row">
-                <td colspan="6" class="text-right font-bold total-label" style="padding: 20px;">
-                    Grand Total (Collected):
+                <td colspan="8" class="text-right font-bold total-label" style="padding: 20px;">
+                    Grand Total (Filtered):
                 </td>
                 <td class="text-right font-bold total-amount" style="padding: 20px;">
-                    ₱{{ number_format($totalRevenue, 2) }}
+                    ₱{{ number_format($calculatedGrandTotal, 2) }}
                 </td>
             </tr>
         </tfoot>

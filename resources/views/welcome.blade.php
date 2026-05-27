@@ -23,27 +23,31 @@
     <div id="welcome-board" 
          class="fixed inset-0 z-50 bg-[#165166] flex flex-col items-center justify-center text-white cursor-pointer transition-all duration-700 ease-in-out">
         
-        <div class="mb-4">
-            <img src="{{ asset('image/island-central-logo.png') }}" alt="Island Central Logo" class="h-20 w-auto object-contain drop-shadow-lg">
+        <div class="mb-12">
+            <img src="{{ asset('image/island-central-logo.jpeg') }}" alt="Island Central Logo" class="h-16 w-auto object-contain drop-shadow-lg opacity-80">
         </div>
 
-        <div class="relative w-48 h-48 mb-8 flex items-center justify-center">
-            <div class="absolute inset-0 animate-ring bg-[#2a8b9d] rounded-full"></div>
-            <div class="absolute inset-2 bg-[#2a8b9d] rounded-full shadow-lg border-2 border-[#86c5d6]"></div>
-            
-            <img src="{{ asset('image/pickleball-logo.jpeg') }}" 
-                 alt="Stay Out of the Kitchen" 
-                 class="z-10 w-40 h-40 object-contain rounded-full shadow-2xl">
-        </div>
+        <div class="flex flex-row items-center gap-12 mb-20">
+            <div class="relative w-56 h-56 flex items-center justify-center shrink-0">
+                <div class="absolute inset-0 animate-ring bg-[#2a8b9d] rounded-full"></div>
+                <div class="absolute inset-2 bg-[#2a8b9d] rounded-full shadow-lg border-2 border-[#86c5d6]"></div>
+                
+                <img src="{{ asset('image/pickleball-logo.jpeg') }}" 
+                     alt="Pickleball Logo" 
+                     class="z-10 w-48 h-48 object-contain rounded-full shadow-2xl bg-white border-4 border-[#165166]">
+            </div>
 
-        <h1 class="text-6xl md:text-8xl font-black mb-1 tracking-widest text-center uppercase">Pickleball</h1>
-        <h2 class="text-3xl md:text-4xl font-bold tracking-[0.4em] text-[#86c5d6] mb-16 text-center uppercase">Reservation Kiosk</h2>
+            <div class="text-left">
+                <h1 class="text-6xl md:text-8xl font-black mb-1 tracking-widest uppercase leading-none">Pickleball</h1>
+                <h2 class="text-3xl md:text-4xl font-bold tracking-[0.4em] text-[#86c5d6] uppercase">Reservation Kiosk</h2>
+            </div>
+        </div>
         
         <div class="animate-bounce flex flex-col items-center">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-14 w-14 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 mb-4 opacity-70" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122" />
             </svg>
-            <p class="text-2xl font-bold tracking-widest uppercase bg-[#2a8b9d] px-12 py-4 rounded-full shadow-2xl border border-[#86c5d6]">
+            <p class="text-xl font-bold tracking-widest uppercase bg-[#2a8b9d] px-12 py-4 rounded-full shadow-2xl border border-[#86c5d6]">
                 Tap Screen to Begin
             </p>
         </div>
@@ -56,13 +60,13 @@
     <div id="main-application" class="hidden-tab flex flex-col h-screen transition-opacity duration-700 ease-in-out opacity-0">
         
         <header class="bg-white px-8 py-4 flex justify-between items-center shadow-md border-b border-[#b2d9e2]">
-            <div class="flex items-center gap-2">
-                <div class="bg-[#165166] p-2 rounded-xl text-white">
-                    <img src="{{ asset('image/pickleball_logo.jpeg') }}" class="w-10 h-10 object-contain rounded-md">
+            <div class="flex items-center gap-4">
+                <div class="bg-white p-1 rounded-full border-2 border-[#165166] shadow-sm">
+                    <img src="{{ asset('image/pickleball-logo.jpeg') }}" class="w-12 h-12 object-contain rounded-full">
                 </div>
                 <div class="flex flex-col">
                     <h1 class="text-2xl font-black tracking-wider text-[#1c4e63]">PickleballReservation.com</h1>
-                    <p class="text-xs text-gray-500 font-bold uppercase tracking-widest mt-[-2px]">Island Central Mactan</p>
+                    <p class="text-xs text-gray-400 font-bold uppercase tracking-widest mt-[-2px]">Island Central Mactan</p>
                 </div>
             </div>
             
@@ -90,9 +94,19 @@
     </div>
 
     <script>
-        // Welcome Screen Logic
         const welcomeBoard = document.getElementById('welcome-board');
         const mainApplication = document.getElementById('main-application');
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const hasDate = urlParams.has('date');
+        const isRescheduling = {{ session('reschedule_id') ? 'true' : 'false' }};
+
+        if (hasDate || isRescheduling) {
+            welcomeBoard.classList.add('hidden-tab');
+            mainApplication.classList.remove('hidden-tab');
+            mainApplication.classList.add('flex');
+            mainApplication.style.opacity = '1';
+        }
 
         welcomeBoard.addEventListener('click', () => {
             welcomeBoard.style.opacity = '0';
@@ -107,15 +121,16 @@
             }, 700);
         });
 
-        // Clock Logic
         function updateClock() {
             const now = new Date();
             const timeElement = document.getElementById('clock-time');
             const dateElement = document.getElementById('clock-date');
-            timeElement.innerText = now.toLocaleTimeString('en-GB');
-            dateElement.innerText = now.toLocaleDateString('en-US', { 
-                weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' 
-            }).toUpperCase();
+            if (timeElement) timeElement.innerText = now.toLocaleTimeString('en-GB');
+            if (dateElement) {
+                dateElement.innerText = now.toLocaleDateString('en-US', { 
+                    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' 
+                }).toUpperCase();
+            }
         }
 
         setInterval(updateClock, 1000);

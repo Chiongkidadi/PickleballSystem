@@ -2,19 +2,21 @@
 
 namespace Database\Seeders;
 
-use App\Models\User;
 use Illuminate\Database\Seeder;
+use App\Models\User; // Make sure this matches your User model path
+use Illuminate\Support\Facades\Hash;
 
 class DatabaseSeeder extends Seeder
 {
-    public function run(): void
+    public function run()
     {
-        // This will safely create the admin without crashing
+        // This ensures we don't create duplicate admins
         User::updateOrCreate(
-            ['email' => 'chiongysha@gmail.com'], 
+            ['email' => 'chiongysha@gmail.com'],
             [
-                'name' => 'Admin',            
-                'password' => bcrypt('ysha123') 
+                'name' => 'Admin Ysha',
+                'password' => Hash::make('ysha123'),
+                // 'is_admin' => true, // Uncomment if you have an admin flag column
             ]
         );
     }

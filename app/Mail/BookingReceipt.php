@@ -4,8 +4,6 @@ namespace App\Mail;
 
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
-use Illuminate\Mail\Mailables\Content;
-use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
 
 class BookingReceipt extends Mailable
@@ -13,23 +11,27 @@ class BookingReceipt extends Mailable
     use Queueable, SerializesModels;
 
     public $reservation;
+    public $rescheduleUrl;
+    public $isReschedule;
 
-    public function __construct($reservation)
+    public function __construct($reservation, $rescheduleUrl)
     {
         $this->reservation = $reservation;
+        $this->rescheduleUrl = $rescheduleUrl;
+        
+        // We detect if this is a reschedule by checking if the request had a booking_id
+        $this->isReschedule = request()->filled('booking_id');
     }
 
-    public function envelope(): Envelope
+    public function build()
     {
-        return new Envelope(
-            subject: 'Your Pickleball Booking Receipt',
-        );
-    }
+        // 1. Determine the subject based on the reschedule status
+        $subjectText = $this->isReschedule 
+            ? 'PICKLEBALL RESCHEDULE RECEIPT - Island Central Mactan' 
+            : 'Pickleball Booking Receipt - Island Central Mactan';
 
-    public function content(): Content
-    {
-        return new Content(
-            view: 'emails.receipt', // This matches the folder you created
-        );
+        // 2. Return the view and the dynamic subject
+        return $this->subject($subjectText)
+                    ->view('emails.receipt');
     }
 }

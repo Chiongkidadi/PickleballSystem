@@ -20,5 +20,9 @@ class Reservation extends Model
         'payment_method',
         'status',
         'rent_equipment',
+        'reference_number',   
+        'proof_of_payment', 
+        'paddle_rental',  
+        'rent_equipment'  
     ];
 }

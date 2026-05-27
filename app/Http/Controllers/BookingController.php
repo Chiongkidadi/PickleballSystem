@@ -8,13 +8,12 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\URL;
 
 class BookingController extends Controller
 {
-    /**
-     * KIOSK VIEW: Show the Reservation Calendar & Form
-     */
     public function kioskReserve(Request $request)
     {
         $date = $request->query('date', date('Y-m-d'));
@@ -23,8 +22,6 @@ class BookingController extends Controller
                         ->get();
         
         $global_discount = Cache::get('global_discount', 0); 
-
-        // Check if full (Example: 10 slots max per day)
         $maxCapacity = 10; 
         $isFull = $bookedSlots->count() >= $maxCapacity;
         
@@ -37,24 +34,22 @@ class BookingController extends Controller
         ]);
     }
 
-    /**
-     * ADMIN VIEW: Show the Reservation Calendar & Form
-     */
     public function adminReserve(Request $request)
     {
         $date = $request->query('date', date('Y-m-d'));
-        
-        // FIXED: Now orders by start_time ascending instead of created_at descending
         $bookedSlots = Reservation::where('reservation_date', $date)
                         ->orderBy('start_time', 'asc') 
                         ->get();
         
         $global_discount = Cache::get('global_discount', 0); 
-
-        // Check if full
         $maxCapacity = 10;
         $isFull = $bookedSlots->count() >= $maxCapacity;
         
+        // If it's an AJAX request from the calendar, return JSON
+        if ($request->ajax()) {
+            return response()->json(['bookedSlots' => $bookedSlots]);
+        }
+
         return view('bookings.reserve', [
             'date' => $date,
             'bookedSlots' => $bookedSlots,
@@ -64,196 +59,211 @@ class BookingController extends Controller
         ]);
     }
 
-    /**
-     * Handle the form submission and send the Receipt
-     */
+    public function rescheduleFromEmail($id)
+    {
+        $booking = Reservation::findOrFail($id);
+
+        return redirect()->route('reserve.index')->with([
+            'reschedule_id' => $booking->id,
+            'prefill_name'  => $booking->player_name,
+            'prefill_email' => $booking->email,
+            'prefill_duration'  => $booking->duration,
+            'prefill_paddle'    => $booking->paddle_rental,
+            'prefill_payment'   => $booking->payment_method,
+            'prefill_equipment' => $booking->rent_equipment,
+        ]);
+    }
+
+    // --- UPDATED SEND OTP (Aligned with web.php /otp/send) ---
+    public function sendOtp(Request $request)
+    {
+        $request->validate(['email' => 'required|email']);
+        
+        $otp = rand(100000, 999999);
+        // Store in cache for 15 minutes
+        Cache::put('otp_' . $request->email, $otp, now()->addMinutes(15));
+        
+        try {
+            Mail::raw("Your Pickleball Kiosk verification code is: $otp", function($m) use ($request){ 
+                $m->to($request->email)->subject('Verification Code'); 
+            });
+            return response()->json(['success' => true]);
+        } catch (\Exception $e) {
+            Log::error('OTP Send Error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false, 
+                'message' => 'Failed to send email. Check your .env settings.'
+            ], 500);
+        }
+    }
+
+    // --- UPDATED VERIFY OTP (Aligned with web.php /otp/verify) ---
+    public function verifyOtp(Request $request)
+    {
+        $request->validate([
+            'email' => 'required|email',
+            'otp' => 'required'
+        ]);
+
+        if (Cache::get('otp_' . $request->email) == $request->otp) {
+            // Mark email as verified for 30 minutes
+            Cache::put('verified_' . $request->email, true, now()->addMinutes(30));
+            return response()->json(['success' => true]);
+        }
+
+        return response()->json([
+            'success' => false, 
+            'message' => 'Invalid or expired OTP.'
+        ], 422);
+    }
+
     public function store(Request $request)
     {
-        // 1. VALIDATION
         $request->validate([
             'player_name' => 'required|string',
-            'email' => [
-                'nullable', 
-                'email', 
-                'regex:/^[\w\-\.]+@gmail\.com$/i' 
-            ],
+            'email' => ['nullable', 'email', 'regex:/^[\w\-\.]+@gmail\.com$/i'],
             'reservation_date' => 'required|date',
             'start_time' => 'required',
             'duration' => 'required|integer', 
             'payment_method' => 'required|string',
-            'discount_percent' => 'nullable|numeric|min:0|max:100', 
-            'rent_equipment' => 'nullable|integer',
-        ], [
-            'email.regex' => 'Email not recognized. Please use a valid @gmail.com address.',
-            'email.email' => 'Please enter a valid email format.'
+            'paddle_rental' => 'nullable|string', 
+            'rent_equipment' => 'nullable', 
+            'reference_number' => 'nullable|string',
+            'proof_of_payment' => 'nullable|image|mimes:jpeg,png,jpg|max:5120', 
         ]);
 
-        // ==========================================
-        // NEW SECURITY: Prevent booking if email is not verified
-        // (Bypassed if submitted by admin)
-        // ==========================================
+        // Only enforce verification for non-admin kiosk users
         if (!$request->has('isAdmin') && $request->filled('email')) {
-            $isVerified = Cache::get('verified_' . $request->email);
-            if (!$isVerified) {
+            if (!Cache::get('verified_' . $request->email)) {
                 return back()->with('error', 'You must verify your email address before booking.');
             }
         }
-        // ==========================================
 
-        $durationValue = (int) $request->duration;
-        $start = Carbon::parse($request->start_time);
-        $end = $start->copy()->addHours($durationValue);
-
-        // EXTRA SECURITY: Final check for capacity before saving
-        $maxCapacity = 10;
-        $currentBookings = Reservation::where('reservation_date', $request->reservation_date)->count();
-        if ($currentBookings >= $maxCapacity) {
-             return back()->with('error', 'Sorry, this day just became fully booked.');
+        try {
+            $start = Carbon::parse($request->start_time);
+            $duration = (int)$request->duration;
+            $end = $start->copy()->addHours($duration);
+        } catch (\Exception $e) {
+            return back()->with('error', 'Invalid start time selected.');
         }
 
-        // 2. CHECK FOR DOUBLE BOOKING
-        $conflict = Reservation::where('reservation_date', $request->reservation_date)
+        $conflictQuery = Reservation::where('reservation_date', $request->reservation_date)
             ->where(function($query) use ($start, $end) {
                 $query->where('start_time', '<', $end->format('H:i'))
                       ->where('end_time', '>', $start->format('H:i'));
-            })->exists();
+            });
 
-        if ($conflict) {
+        if ($request->filled('booking_id')) {
+            $conflictQuery->where('id', '!=', $request->booking_id);
+        }
+
+        if ($conflictQuery->exists()) {
             return back()->with('error', 'That time slot overlaps with an existing booking.');
         }
 
-        // 3. CALCULATE PRICING
-        $hour = (int) $start->format('H');
-        $baseRate = ($hour < 12) ? 300 : 400; 
-        $totalPrice = $baseRate * $durationValue;
+        $paddleRentalString = $request->input('paddle_rental') ?? $request->input('rent_equipment') ?? 'None';
+        $equipmentFee = $this->extractRentalPrice($paddleRentalString);
 
-        if ($request->filled('discount_percent')) {
-            $percent = (float) $request->discount_percent;
-            $totalPrice -= ($percent / 100) * $totalPrice;
-        } else {
-            $global_discount = Cache::get('global_discount', 0);
-            if ($global_discount > 0) {
-                $totalPrice -= ($global_discount / 100) * $totalPrice;
-            }
+        $hourlyRate = 200; 
+        $totalPrice = ($hourlyRate * $duration) + $equipmentFee;
+
+        $proofPath = null;
+        if ($request->hasFile('proof_of_payment')) {
+            $proofPath = $request->file('proof_of_payment')->store('receipts', 'public');
         }
 
-        $equipmentFee = (int) ($request->rent_equipment ?? 0);
-        $totalPrice += $equipmentFee;
+        if ($request->filled('booking_id')) {
+            $reservation = Reservation::findOrFail($request->booking_id);
+            $reservation->update([
+                'reservation_date' => $request->reservation_date,
+                'start_time' => $start->format('H:i'),
+                'end_time' => $end->format('H:i'),
+                'duration' => $duration,
+                'price' => $totalPrice,
+                'paddle_rental' => $paddleRentalString, 
+                'rent_equipment' => $equipmentFee,
+            ]);
+            $successMsg = 'Reschedule successful!';
+        } else {
+            $reservation = Reservation::create([
+                'player_name' => $request->player_name,
+                'email' => $request->email, 
+                'reservation_date' => $request->reservation_date,
+                'start_time' => $start->format('H:i'),
+                'end_time' => $end->format('H:i'), // Fixed: Added end_time here
+                'duration' => $duration,
+                'price' => $totalPrice, 
+                'payment_method' => $request->payment_method,
+                'status' => 'pending',
+                'reference_number' => $request->reference_number,
+                'proof_of_payment' => $proofPath,
+                'paddle_rental' => $paddleRentalString, 
+                'rent_equipment' => $equipmentFee,
+            ]);
+            $successMsg = 'Booking confirmed for ₱' . $totalPrice;
+        }
 
-        // 4. SAVE TO DATABASE
-        $reservation = Reservation::create([
-            'player_name' => $request->player_name,
-            'email' => $request->email, 
-            'reservation_date' => $request->reservation_date,
-            'start_time' => $start->format('H:i'),
-            'end_time' => $end->format('H:i'), 
-            'duration' => $durationValue,
-            'price' => round($totalPrice, 2), 
-            'payment_method' => $request->payment_method,
-            'rent_equipment' => $equipmentFee,
-            'status' => 'pending',
-        ]);
-
-        // 5. SEND EMAIL RECEIPT
         if ($request->filled('email')) {
             try {
-                Mail::to($request->email)->send(new BookingReceipt($reservation));
-                return back()->with('success', 'Booking confirmed! A receipt has been sent to ' . $request->email);
-            } catch (\Exception $e) {
-                Log::error('Mail Error: ' . $e->getMessage());
-                return back()->with('success', 'Booking confirmed! (Note: The receipt email failed to send).');
+                $rescheduleUrl = URL::temporarySignedRoute(
+                    'reserve.reschedule', 
+                    now()->addDays(3), 
+                    ['id' => $reservation->id]
+                );
+
+                Mail::to($reservation->email)->send(new BookingReceipt($reservation, $rescheduleUrl));
+            } catch (\Exception $e) { 
+                Log::error('Mail Error: ' . $e->getMessage()); 
             }
         }
 
-        return back()->with('success', 'Booking confirmed!');
+        return ($request->has('isAdmin') || $request->is('admin-panel/*') ? back() : redirect()->route('booking.success'))->with('success', $successMsg);
     }
 
-    /**
-     * PRINT SUMMARY: Generates a printable report of filtered bookings
-     */
-    public function printSummary(Request $request) 
+    private function extractRentalPrice($rentalString)
     {
-        // 1. Initialize query
+        if (empty($rentalString) || $rentalString === 'None' || $rentalString === '0') {
+            return 0;
+        }
+
+        if (strpos($rentalString, '400') !== false) return 400;
+        if (strpos($rentalString, '300') !== false) return 300;
+        if (strpos($rentalString, '200') !== false) return 200;
+        if (strpos($rentalString, '100') !== false) return 100;
+
+        return is_numeric($rentalString) ? (float)$rentalString : 0;
+    }
+
+    public function printSummary(Request $request)
+    {
+        $fromDate = $request->query('from_date');
+        $toDate = $request->query('to_date');
         $query = Reservation::query();
 
-        // 2. Apply Date Filters from the URL
-        if ($request->filled('start_date')) {
-            $query->whereDate('reservation_date', '>=', $request->start_date);
+        if ($fromDate && $toDate) {
+            $query->whereBetween('reservation_date', [$fromDate, $toDate]);
+            $period = Carbon::parse($fromDate)->format('M d, Y') . ' to ' . Carbon::parse($toDate)->format('M d, Y');
+        } else {
+            $today = date('Y-m-d');
+            $query->where('reservation_date', $today);
+            $period = Carbon::parse($today)->format('M d, Y');
         }
-        
-        if ($request->filled('end_date')) {
-            $query->whereDate('reservation_date', '<=', $request->end_date);
-        }
 
-        // 3. Fetch filtered bookings
-        $bookings = $query->orderBy('reservation_date', 'desc')
-                          ->orderBy('start_time', 'asc')
-                          ->get();
-
-        // 4. Calculate stats ONLY for filtered bookings
-        $totalRevenue = $bookings->filter(function($b) {
-            return in_array(strtolower($b->status), ['paid', 'approved']);
-        })->sum('price');
-
-        $totalBookings = $bookings->count();
-
-        // 5. Return view with date range info for the report header
-        return view('admin.print_summary', [
-            'bookings' => $bookings,
-            'totalRevenue' => $totalRevenue,
-            'totalBookings' => $totalBookings,
-            'startDate' => $request->start_date,
-            'endDate' => $request->end_date
-        ]);
+        $bookings = $query->orderBy('reservation_date', 'asc')->orderBy('start_time', 'asc')->get();
+        return view('admin.print_summary', compact('bookings', 'period'));
     }
 
-    // ==========================================
-    // NEW METHODS: OTP VERIFICATION
-    // ==========================================
-
-    /**
-     * Send a 6-digit OTP to the user's email
-     */
-    public function sendOtp(Request $request)
+    public function cancel($id)
     {
-        $request->validate([
-            'email' => 'required|email|regex:/^[\w\-\.]+@gmail\.com$/i'
-        ]);
-
-        $otp = rand(100000, 999999);
-        
-        // Save the OTP in the cache for 10 minutes
-        Cache::put('otp_' . $request->email, $otp, now()->addMinutes(10));
-
-        // Using Mail::raw so you don't have to create a new Blade email view
-        try {
-            Mail::raw("Your Pickleball Reservation verification code is: $otp", function ($message) use ($request) {
-                $message->to($request->email)->subject('Your Verification Code');
-            });
-            return response()->json(['success' => true]);
-        } catch (\Exception $e) {
-            Log::error('OTP Mail Error: ' . $e->getMessage());
-            return response()->json(['success' => false, 'message' => 'Failed to send email. Check mail settings.']);
-        }
+        $reservation = Reservation::findOrFail($id);
+        $reservation->update(['status' => 'cancelled']);
+        return back()->with('success', 'Booking for ' . $reservation->player_name . ' has been cancelled.');
     }
 
-    /**
-     * Verify the code matches what we saved
-     */
-    public function verifyOtp(Request $request)
+    public function approve($id)
     {
-        $request->validate(['email' => 'required|email', 'otp' => 'required|numeric']);
-        
-        $cachedOtp = Cache::get('otp_' . $request->email);
-
-        if ($cachedOtp && $cachedOtp == $request->otp) {
-            // Mark as verified in the cache for 30 minutes
-            Cache::put('verified_' . $request->email, true, now()->addMinutes(30));
-            // Clear the OTP so it can't be reused
-            Cache::forget('otp_' . $request->email);
-            return response()->json(['success' => true]);
-        }
-
-        return response()->json(['success' => false, 'message' => 'Invalid or expired code.']);
+        $reservation = Reservation::findOrFail($id);
+        $reservation->update(['status' => 'approved']);
+        return back()->with('success', 'Booking for ' . $reservation->player_name . ' has been approved.');
     }
 }

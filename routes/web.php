@@ -5,32 +5,27 @@ use App\Http\Controllers\BookingController;
 use App\Http\Controllers\Admin\AdminDashboardController;
 use App\Http\Controllers\AdminAuthController;
 
-/*
-|--------------------------------------------------------------------------
-| Web Routes
-|--------------------------------------------------------------------------
-*/
-
-// Redirect the root URL directly to the kiosk page
 Route::redirect('/', '/kiosk');
 
 // Public Kiosk Routes
 Route::controller(BookingController::class)->group(function () {
-    // This loads the 'kiosk' view via the kioskReserve method in your controller
-    Route::get('/kiosk', 'kioskReserve')->name('kiosk.reserve');
-    Route::post('/reserve', 'store')->name('reserve.store');
-    
-    // Email Verification (OTP) for public bookings
-    Route::post('/send-otp', 'sendOtp')->name('otp.send');
-    Route::post('/verify-otp', 'verifyOtp')->name('otp.verify');
+    Route::get('/kiosk', 'kioskReserve')->name('reserve.index');
+    Route::post('/kiosk', 'store')->name('reserve.store');
+    Route::get('/booking-success', function () { return view('bookings.success'); })->name('booking.success');
+
+    // FIXED: Updated these paths to match your JavaScript calls
+    Route::post('/otp/send', 'sendOtp')->name('otp.send');
+    Route::post('/otp/verify', 'verifyOtp')->name('otp.verify');
+
+    // The Reschedule Route for your email button
+    Route::get('/kiosk/reschedule/{id}', 'rescheduleFromEmail')
+        ->name('reserve.reschedule')
+        ->middleware('signed');
 });
 
-// Basic Login Redirect
-Route::get('/login', function () {
-    return redirect()->route('admin.login');
-})->name('login');
+Route::get('/login', function () { return redirect()->route('admin.login'); })->name('login');
 
-// Admin Authentication Routes (Guest only)
+// Admin Authentication
 Route::prefix('admin-panel')->name('admin.')->middleware('guest')->group(function () {
     Route::get('/login', [AdminAuthController::class, 'showEmailForm'])->name('login');
     Route::post('/login', [AdminAuthController::class, 'sendOtp'])->name('login.send');
@@ -38,17 +33,20 @@ Route::prefix('admin-panel')->name('admin.')->middleware('guest')->group(functio
     Route::post('/verify', [AdminAuthController::class, 'verifyOtp'])->name('otp.verify');
 });
 
-// Admin Dashboard Routes (Authenticated only)
+// Admin Dashboard
 Route::prefix('admin-panel')->name('admin.')->middleware('auth')->group(function () {
-    // Main Dashboard with filters
     Route::get('/', [AdminDashboardController::class, 'index'])->name('dashboard');
     
-    // Booking Management
+    // Admin Reservation Routes
     Route::get('/reserve', [BookingController::class, 'adminReserve'])->name('reserve');
-    Route::get('/walk-in', [AdminDashboardController::class, 'walkin'])->name('walkin');
-    Route::post('/approve/{id}', [AdminDashboardController::class, 'approve'])->name('reservations.approve');
+    // ADDED: This POST route allows the Admin Walk-in "Confirm" button to save data
+    Route::post('/reserve', [BookingController::class, 'store'])->name('reserve.store'); 
     
-    // Utilities
+    Route::get('/walk-in', [AdminDashboardController::class, 'walkin'])->name('walkin');
+
+    Route::patch('/bookings/{id}/approve', [BookingController::class, 'approve'])->name('reservations.approve');
+    Route::patch('/bookings/{id}/cancel', [BookingController::class, 'cancel'])->name('reservations.cancel');
+    
     Route::get('/print-summary', [BookingController::class, 'printSummary'])->name('bookings.print');
     Route::post('/update-promo', [AdminDashboardController::class, 'updatePromo'])->name('updatePromo');
     Route::post('/logout', [AdminAuthController::class, 'logout'])->name('logout');

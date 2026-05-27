@@ -3,105 +3,108 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pickleball Reservation</title>
+    <title>Pickleball Kiosk</title>
+    <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        body, html {
-            height: 100%;
-            margin: 0;
-            font-family: 'Arial', sans-serif;
-            background-color: #1a4f63; 
-            color: white;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            text-align: center;
+        html, body { 
+            height: 100%; 
+            overflow: hidden; 
+            margin: 0; 
+            background-color: #165166; 
         }
 
-        .island-logo {
-            height: 60px; 
-            margin-bottom: 30px;
-            border-radius: 10px; 
+        /* Ensure the hidden-tab class really hides the element */
+        .hidden-tab { 
+            display: none !important; 
+            visibility: hidden; 
+            pointer-events: none; 
+        }
+        
+        /* The main app container must be fixed to the full screen */
+        #main-application { 
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 10; 
+            opacity: 1;
         }
 
-        .logo-circle {
-            width: 220px;
-            height: 220px;
-            border-radius: 50%;
-            background-color: #153c4d;
-            border: 4px solid #23657d;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            margin-bottom: 20px;
-            overflow: hidden;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-        }
-
-        .logo-circle img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-        }
-
-        h1 {
-            font-size: 5rem;
-            font-weight: 900;
-            letter-spacing: 10px;
-            margin: 0;
-            text-transform: uppercase;
-        }
-
-        h2 {
-            font-size: 1.5rem;
-            letter-spacing: 12px;
-            color: #6bb4cc;
-            margin-bottom: 50px;
-            text-transform: uppercase;
-        }
-
-        .start-btn {
-            background: transparent;
-            border: 2px solid #55a8c2;
-            color: white;
-            padding: 18px 45px;
-            font-size: 1.3rem;
-            font-weight: bold;
-            border-radius: 50px;
-            text-decoration: none;
-            letter-spacing: 2px;
-            box-shadow: 0 0 20px rgba(85, 168, 194, 0.5);
-            transition: 0.3s;
-        }
-
-        .start-btn:hover {
-            background: rgba(85, 168, 194, 0.2);
-        }
-
-        .footer {
-            margin-top: 60px;
-            font-size: 0.8rem;
-            letter-spacing: 4px;
-            color: #55879a;
+        /* The iframe must fill 100% of the fixed container */
+        iframe { 
+            width: 100%; 
+            height: 100%; 
+            border: none; 
+            display: block;
         }
     </style>
 </head>
-<body>
 
-    <img src="{{ asset('storage/island-central-logo.png.png') }}" alt="Island Centralllll" class="island-logo">
+<body class="bg-[#165166] font-sans antialiased overflow-hidden">
 
-    <div class="logo-circle">
-        <img src="{{ asset('storage/pickleball_logo.jpeg') }}" alt="Pickleball Logoooo">
+    @if(!session('reschedule_id'))
+    <div id="welcome-board" 
+         class="fixed inset-0 z-50 bg-[#165166] flex flex-col items-center justify-center text-white cursor-pointer transition-all duration-700 ease-in-out">
+        
+        <h1 class="text-6xl md:text-8xl font-black mb-2 tracking-widest text-center uppercase">Pickleball</h1>
+        <h2 class="text-3xl md:text-4xl font-bold tracking-[0.4em] text-[#86c5d6] mb-20 text-center uppercase">Reservation Kiosk</h2>
+        
+        <div class="animate-bounce flex flex-col items-center">
+            <p class="text-2xl font-bold tracking-widest uppercase bg-[#2a8b9d] px-12 py-4 rounded-full shadow-2xl border border-[#86c5d6]">
+                Tap Screen to Begin
+            </p>
+        </div>
+    </div>
+    @endif
+
+    <div id="main-application" 
+         class="{{ session('reschedule_id') ? '' : 'hidden-tab' }}">
+        <iframe src="{{ url('/kiosk') }}" id="reserve-iframe"></iframe>
     </div>
 
-    <h1>Pickleball</h1>
-    <h2>Reservation Kiosk</h2>
+    <script>
+        const welcomeBoard = document.getElementById('welcome-board');
+        const mainApplication = document.getElementById('main-application');
+        const iframe = document.getElementById('reserve-iframe');
 
-    <a href="{{ route('reserve.store') }}" class="start-btn">↖ TAP SCREEN TO BEGINNNN</a>
+        function startApp() {
+            if (!welcomeBoard) return;
 
-    <div class="footer">
-        ISLAND CENTRAL MACTAN • MEPZ ECOZONE
-    </div>
+            // 1. Start the visual fade out
+            welcomeBoard.style.opacity = '0';
+            welcomeBoard.style.pointerEvents = 'none'; // Stop intercepting clicks immediately
 
+            setTimeout(() => {
+                // 2. LITERALLY REMOVE the board from the DOM so it cannot block the iframe
+                welcomeBoard.remove(); 
+                
+                // 3. Make the main application container visible and clickable
+                mainApplication.classList.remove('hidden-tab');
+                mainApplication.style.display = 'block';
+                
+                // 4. Force a reload of the iframe to ensure it renders at the correct size
+                if(iframe) {
+                    iframe.style.height = '100vh';
+                }
+            }, 700);
+        }
+
+        if (welcomeBoard) {
+            welcomeBoard.addEventListener('click', startApp);
+        }
+
+        // Handle Reschedule Mode: If reschedule_id is in session, the board is never rendered
+        @if(session('reschedule_id'))
+            console.log('Reschedule mode: Application active.');
+        @endif
+
+        // Optional: Ensure the iframe is clickable by forcing focus on it
+        window.addEventListener('DOMContentLoaded', (event) => {
+            if (mainApplication && !mainApplication.classList.contains('hidden-tab')) {
+                iframe.focus();
+            }
+        });
+    </script>
 </body>
 </html>
